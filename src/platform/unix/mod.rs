@@ -544,11 +544,10 @@ impl OsIpcReceiverSet {
             assert!(event.is_readable());
 
             let event_token = event.token();
-            let poll_entry = self
+            let poll_entry = *self
                 .pollfds
                 .get(&event_token)
-                .expect("Got event for unknown token.")
-                .clone();
+                .expect("Got event for unknown token.");
             loop {
                 match recv(poll_entry.fd, BlockingMode::Nonblocking) {
                     Ok(ipc_message) => {

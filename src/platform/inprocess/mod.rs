@@ -21,7 +21,6 @@ use std::ops::{Deref, RangeFrom};
 use std::slice;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use std::usize;
 use uuid::Uuid;
 
 #[derive(Clone)]
@@ -35,7 +34,7 @@ impl ServerRecord {
     fn new(sender: OsIpcSender) -> ServerRecord {
         let (tx, rx) = crossbeam_channel::unbounded::<bool>();
         ServerRecord {
-            sender: sender,
+            sender,
             conn_sender: tx,
             conn_receiver: rx,
         }
@@ -130,7 +129,7 @@ pub struct OsIpcSender {
 
 impl PartialEq for OsIpcSender {
     fn eq(&self, other: &OsIpcSender) -> bool {
-        &*self.sender.borrow() as *const _ == &*other.sender.borrow() as *const _
+        std::ptr::eq(&*self.sender.borrow(), &*other.sender.borrow())
     }
 }
 
@@ -159,11 +158,10 @@ impl OsIpcSender {
     ) -> Result<(), ChannelError> {
         let os_ipc_channels = ports.into_iter().map(OsOpaqueIpcChannel::new).collect();
         let ipc_message = IpcMessage::new(data.to_vec(), os_ipc_channels, shared_memory_regions);
-        Ok(self
-            .sender
+        self.sender
             .borrow()
             .send(ChannelMessage(ipc_message))
-            .map_err(|_| ChannelError::BrokenPipeError)?)
+            .map_err(|_| ChannelError::BrokenPipeError)
     }
 }
 
@@ -206,12 +204,12 @@ impl OsIpcReceiverSet {
 
             let mut select = Select::new();
             for r in &borrows {
-                select.recv(&r);
+                select.recv(r);
             }
             let res = select.select();
             let receiver_index = res.index();
             let receiver_id = self.receiver_ids[receiver_index];
-            if let Ok(ChannelMessage(ipc_message)) = res.recv(&borrows[receiver_index as usize]) {
+            if let Ok(ChannelMessage(ipc_message)) = res.recv(&borrows[receiver_index]) {
                 return Ok(vec![OsIpcSelectionResult::DataReceived(
                     receiver_id,
                     ipc_message,
@@ -262,7 +260,7 @@ impl OsIpcOneShotServer {
             .insert(name.clone(), record);
         Ok((
             OsIpcOneShotServer {
-                receiver: receiver,
+                receiver,
                 name: name.clone(),
             },
             name.clone(),
@@ -374,7 +372,7 @@ impl OsIpcSharedMemory {
         let mut v = Arc::new(vec![byte; length]);
         OsIpcSharedMemory {
             ptr: Arc::get_mut(&mut v).unwrap().as_mut_ptr(),
-            length: length,
+            length,
             data: v,
         }
     }
